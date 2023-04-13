@@ -1,0 +1,435 @@
+---
+title: "Projekt zaliczeniowy"
+author: "Kamil Kopiński"
+language: polski.yml
+format: 
+  html:
+    echo: false
+    message: false
+    warning: false
+    self-contained: true
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Lista krajów, niektórych terytoriów zależnych i jednostek administracyjnych według wskaźnika pozbawienia wolności
+
+Mój projekt będzie dotyczył przeanalizowania tabeli krajów świata dotyczącej więźniów. Zawarte są w niej informacje min. o ilości więźniów w danym kraju, stosunku procentowym: mężczyzn do kobiet, obywateli danego kraju do osób z zagranicy oraz ile procentowo osób w więzieniu to aresztowani.
+
+```{r}
+library(rvest)
+library(tidyverse)
+library(kableExtra)
+library(reactablefmtr)
+require(maps)
+require(viridis)
+library(dplyr)
+library(plotly)
+library(reshape2)
+library(dplyr)
+```
+
+```{r}
+url = 'https://en.wikipedia.org/wiki/List_of_countries_and_some_dependent_territories_and_subnational_areas_by_incarceration_rate?fbclid=IwAR1GmY5Aq5rYvEaPdeGYTaNWx3KdT1t7-ic6WnjMjY8V3ECyHlrpIzGa_SU'
+page = read_html(url)
+```
+
+```{r}
+Location  = page %>% 
+  html_nodes(".flagicon+ a") %>% 
+  html_text() %>% 
+  str_remove_all(pattern = "\\*") %>% 
+  str_trim()
+Location = Location[1:226]
+Region =  page %>% 
+  html_nodes("td+ td a") %>% 
+  html_text()
+Count = page %>% 
+  html_nodes(".srn-white-background td:nth-child(3)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Rate = page %>% 
+  html_nodes(".srn-white-background td:nth-child(4)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Male = page %>% 
+  html_nodes("td:nth-child(5)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Female = page %>% 
+  html_nodes("td:nth-child(6)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+National = page %>% 
+  html_nodes("td:nth-child(7)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Foreign = page %>% 
+  html_nodes("td:nth-child(8)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Occupancy = page %>% 
+  html_nodes("td:nth-child(9)") %>% 
+  html_text() %>% 
+  parse_number(na = "—")
+Remand = page %>% 
+  html_nodes("td:nth-child(10)") %>%
+  html_text() %>%  
+  str_remove_all(pattern = "\\n") %>% 
+  parse_number(na = "—")
+Tabela = tibble(Location, Region, Count, Rate, Male, Female, National, Foreign, Occupancy, Remand)
+```
+
+```{r}
+#| label: tbl-pierwsza
+#| tbl-cap: Przykłdowe 10 wierszów z analizowanej tabeli
+#| column: page
+
+Tabela %>%
+  arrange(-Count) %>% 
+  head(10) %>% 
+  kable(col.names = c("Lokalizacja", "Kontynent", "Ilość", "Wskaźnik", "Mężczyźni (%)", "Kobiety (%)", "Krajowy (%)", "Zagraniczny (%)", "Obłożenie więzień (%)", "Areszt (%)")) %>% 
+  kable_paper(bootstrap_options = "striped", full_width = F) %>% 
+  column_spec(6, color = "#D151D1") %>% 
+  column_spec(5, color = c("#8EDAED")) %>% 
+  column_spec(3, bold = T)
+```
+
+W @tbl-pierwsza występują kolumny oznaczające:
+
+`Lokalizacja` - państwo lub terytorium badanego wskaźnika pozbawienia wolności
+
+`Kontynent`- kontynent, w którym występuje dany kraj
+
+`Ilość` - łączna ilość osób uwięzionych w badanym kraju
+
+`Wskaźnik` - ilość uwięzionych osób na 100.000 mieszkańców
+
+`Mężczyźni` - procentowa stosunek mężczyzn do kobiet w więzieniu
+
+`Kobiety` - procentowa stosunek kobiet do mężczyzn w więzieniu
+
+`Krajowy` - procentowa obecność ludzi z danego kraju w więzieniach
+
+`Zagraniczny` - procentowa obecność ludzi z innego kraju w więzieniach
+
+`Obłożenie więzienia` - procentowa ilość zajmowanych miejsc w więzieniach do ich rzeczywistej ilości
+
+`Areszt` - procentowa ilość osób w areszcie do liczby wszystkich uwięzionych
+
+## Analiza
+
+### 1. Jak wygląda średnia ilość osób w więzieniu w zależności od badanego kontynentu
+
+```{r}
+#| label: tbl-1
+#| tbl-cap: Tabela zależności między kontynentem a liczbą uwięzionych
+#| 
+Tabela1 = Tabela %>% 
+  group_by(Region) %>% 
+  summarise(pow1 = mean(Count, na.rm= T), pow2 = mean(Rate, na.rm = T)) %>% 
+  arrange(-pow1)
+Tabela1[, c(2,3)] = round(Tabela1[, c(2,3)], digits = 0)
+
+Tabela1$pow2 = cell_spec(Tabela1$pow2, 
+                      bold = T,
+                      color = spec_color(Tabela1$pow2, end = 0.7, direction = -1), 
+                    font_size = spec_font_size(Tabela1$pow2, begin = 14, end = 19))
+
+Tabela1$pow1 = cell_spec(Tabela1$pow1, 
+                      bold = T)
+
+kbl(Tabela1, col.names = c("Kontynent", "Średnia ilość osób w więzieniu", "Średnia ilość uwięzionych na 100.000 mieszkańców"), align = 'c', escape = F) %>% 
+  column_spec(1, bold = T, color = c("#6E6E6E")) %>%
+ kable_paper(c("hover","striped"), full_width = F) %>%
+  row_spec(0, angle = -5, color = "#045e98")
+```
+
+W **Azji** jest średnio najwięcej osób w więzieniu, jest to zapewne powodowane tym, że najbardziej zaludnionym kontynentem świata. Druga w tabeli jest **Ameryka** ze średnią ilością prawie **74 tyś**, a co ważniejsze największym wskaźnikiem liczy uwięzionym wynoszącym **276**. Najmniej natomiast ma **Afryka** zaledwie 118, co jest ponad 2 razy mniejszym wynikiem. **Europa** plasuje dokładnie po środku tabeli ze
+
+Najwięcej osób w więzieniu na 100.000 mieszkańców jest w Salwadorze **`r Tabela$Rate[Tabela$Location == "El Salvador"]`**, później jest Rwanda **`r Tabela$Rate[Tabela$Location == "Rwanda"]`**, natomiast w Stanach zjednoczonych wynosi **`r Tabela$Rate[Tabela$Location == "United States"]`**,. Dla porównania w Polsce wskaźnik liczy **`r Tabela$Rate[Tabela$Location == "Poland"]`**.
+
+```{r}
+#| label: fig-0
+#| fig-cap: Kraje w zaleźności od ilości więźniów
+
+Tabela$Location[Tabela$Location == "England and Wales"] = "UK"
+Tabela$Location[Tabela$Location == "United States"] = "USA"
+Tabela$Location[Tabela$Location == "Congo"] = "Republic of Congo"
+Tabela$Location[Tabela$Location == "DR Congo"] = "Democratic Republic of the Congo"
+Tab = data.frame("Lok" = Tabela$Location, "Il" = Tabela$Rate) 
+
+map = map_data("world")
+map <- subset(map, region != "Antarctica")
+
+map %>% 
+  merge(Tab, by.x = "region", by.y = "Lok", all.x = T) %>% 
+  arrange(group, order) %>%
+  ggplot(aes(x = long, y = lat, group = group, fill=Il)) + scale_fill_gradient(low="#BCF05A", high = c("#8A0B0B")) + geom_polygon()+labs(x="", y="", fill="Ilość więźniów na 100.000 mieszkańców")+
+  theme(legend.position = "bottom", legend.key.width= unit(1, 'cm'))
+```
+
+```{r}
+
+# Tabela$Male[is.na(Tabela$Male)] <- 0
+# Tabela$Female[is.na(Tabela$Female)] <- 0
+# melted_Tabela <- melt(Tabela,id.vars = c("Location"), measure.vars = c("Male", "Female"))
+# 
+# ggplot(data = melted_Tabela, aes(x = Location, y = value, fill = variable)) +
+#  geom_col()
+```
+
+### 2. Top 5 krajów w różnych kategoriach
+
+Podzielę teraz wszystkie kraje ze względu na 4 kategorie i porównam tylko 5 największych wyników, ze względu na: obłożenie więzień, ilość osób na 100 tyś mieszkańców, procentową ilość aresztowanych do liczby więźniów oraz na procentową liczbę kobiet w więzieniu. Pozwoli to oszacować, które kontynenty mają największy problem z przestępczością.
+
+```{r}
+#| label: fig-1
+#| fig-cap: Kraje z największym obłożeniem więzień
+
+p = Tabela %>% 
+  mutate(Location = factor(Location, 
+                          levels = fct_reorder(Location, Occupancy) %>% levels())) %>% 
+  arrange(-Occupancy) %>% 
+  head(5) %>% 
+  ggplot(aes(x = Location, y = Occupancy, fill = Region)) + 
+  geom_col()+
+  labs(x = "Lokalizacja",
+       y = "Obłożenie więzień (%)") +
+  scale_fill_manual(values = c('#f8766d', '#7cae00', '#00bfc4'))
+ggplotly(p)
+```
+
+```{r}
+#| label: fig-2
+#| fig-cap: Kraje z największą ilością więźniów na 100.000 mieszkańców
+
+p = Tabela %>% 
+  mutate(Location = factor(Location, 
+                          levels = fct_reorder(Location, Rate) %>% levels())) %>% 
+  arrange(-Rate) %>% 
+  head(5) %>% 
+  ggplot(aes(x = Location, y = Rate, fill = Region)) + 
+  geom_col()+
+  labs(x = "Lokalizacja",
+       y = "Wskaźnik") 
+ggplotly(p)
+```
+
+```{r}
+#| label: fig-3
+#| fig-cap: Kraje ze względu na procentową największą ilością aresztowanych
+
+p =Tabela %>% 
+  mutate(Location = factor(Location, 
+                          levels = fct_reorder(Location, Remand) %>% levels())) %>%
+  arrange(-Remand) %>% 
+  head(5) %>% 
+  ggplot(aes(x = Location, y = Remand, fill = Region)) + 
+  geom_col()+
+  labs(x = "Lokalizacja",
+       y = "Aresztowani (%)") +
+  scale_fill_manual(values = c('#f8766d', '#7cae00', '#00bfc4', "#4453A3"))
+ggplotly(p)
+```
+
+```{r}
+#| label: fig-4
+#| fig-cap: Kraje ze względu na procentową największą ilością kobiet w więzieniu
+
+p =Tabela %>% 
+  mutate(Location = factor(Location, 
+                          levels = fct_reorder(Location, Female) %>% levels())) %>%
+  arrange(-Female) %>% 
+  head(5) %>% 
+  ggplot(aes(x = Location, y = Female, fill = Region)) + 
+  geom_col()+
+  labs(x = "Lokalizacja",
+       y = "Kobiety (%)") +
+  scale_fill_manual(values = c('#7cae00','#00bfc4', "#4453A3"))
+ggplotly(p)
+```
+
+Jak widać z wykresów (@fig-1, @fig-2 ) w pierwszej i drugiej kategorii wygrywaj **Ameryki**. Ten kraj w obydwu kategoriach pojawia się aż **5** razy. Z kolei w trzeciej kategorii wygrywa **Afryka**, bo występuje w ostatniej tabeli (@fig-3) 2 razy. Natomiast w ostatniej kategorii ( @fig-4) dominuje **Azja**, ponieważ występuje aż 3 razy. We wszystkich kategoriach Ameryka pojawiła się ***7*** razy, Azja 6, Afryka 4, Europa 2 i Oceania tylko **raz**. Dzięki temu porównaniu można stwierdzić, że największy problem z przestępcami ma **Ameryka**, ponieważ wystąpiła największą (***7***) ilość razy.
+
+### 3. Wszystkie kraje podzielone ze względu na procentową ilość osób ze swojego kraju w więzieniu
+
+```{r}
+#| label: tbl-2
+#| tbl-cap: Kraje ze względu na ilość osób z zagranicy w więzieniu
+
+Tabela %>% 
+  drop_na() %>% 
+  select(Location ,National, Foreign) %>% 
+  reactable(
+    columns = list(
+      Foreign = colDef(
+        cell = data_bars(Tabela, text_position = "outside-end",
+                     box_shadow = T, 
+                     round_edges = T,
+                     fill_color = viridis(3),
+                     fill_gradient = T,
+                     background = "transparent",
+                     tooltip = T,
+                     bar_height = 8),
+        name = "Zagraniczny (%)"),
+      National = colDef(
+        cell = data_bars(Tabela, text_position = "outside-end",
+                     box_shadow = T, 
+                     round_edges = T,
+                     fill_color = viridis(3),
+                     fill_gradient = T,
+                     background = "transparent",
+                     align_bars = "right",
+                     bar_height = 8,
+                     tooltip = T),
+        name  = "Krajowy (%)"),
+      Location = colDef(name = "Lokalizacja")
+    ))
+#Zamienić na %
+```
+
+W zdecydowanej większości krajów to właśnie ich obywatele stanowią największy procent osób w więzieniach. W aż 4 krajach stanowią 100% obecności są to: **Tonga**, **San** **Marino**, **Kiribati**, **Cook Islands.** W większości są to państwa wyspiarskie, oprócz San Marino i wszystkie mają bardzo mało ludności, zazwyczaj poniżej 100 tyś. Najwięcej osób z zagranicy w więzieniu posiadają: **Monaco** 95.2% oraz **Zjednoczone Emiraty Arabskie** 87.8% jest tak, dlatego że są to państwa, w których przebywa bardzo dużo turystów.
+
+```{r}
+# #| label: tbl-3
+# #| tbl-cap: Procentowa ilość płci w więzieniu ze względu na kraj
+# 
+# Tabela %>%
+#   drop_na() %>%
+#   select(Location, Male, Female) %>%
+#   reactable(
+#     columns = list(
+#       Male = colDef(
+#         cell = data_bars(Tabela, text_position = "outside-end",
+#                      box_shadow = T,
+#                      round_edges = T,
+#                      fill_color = "#8EDAED",
+#                      background = "transparent",
+#                      align_bars = "right",
+#                      bar_height = 8,
+#                      tooltip = T),
+#         name = "Mężczyźni (%)"),
+#       Female = colDef(
+#         cell = data_bars(Tabela, text_position = "outside-end",
+#                      box_shadow = T,
+#                      round_edges = T,
+#                      fill_color = "#D151D1",
+#                      background = "transparent",
+#                      tooltip = T,
+#                      bar_height = 8),
+#         name  = "Kobiety (%)"),
+#       Location = colDef(name = "Lokalizacja")
+#     ))
+```
+
+### 4. Polska na tle:
+
+#### 4.1 Średniej z całego świata
+
+```{r}
+#| label: tbl-3
+#| tbl-cap: Polska na tle krajów całego świata
+
+Inne = Tabela %>% 
+ summarise(Location = "Inne kraje",
+           Count = round(mean(Count, na.rm = T), 0),
+           Rate = round(mean(Rate, na.rm = T), 0),
+           Male = mean(Male, na.rm = T),
+           Female = mean(Female, na.rm = T),
+           National= mean(National, na.rm = T),
+           Foreign = mean(Foreign, na.rm = T),
+           Occupancy = mean(Occupancy, na.rm = T),
+           Remand = mean(Remand, na.rm = T))
+Polska = Tabela[Tabela$Location == "Poland",] %>% select(-Region)
+Pol = rbind(Polska, Inne)
+Pol %>%  kable(col.names = c("Lokalizacja", "Ilość", "Wskaźnik", "Mężczyźni (%)", "Kobiety (%)", "Krajowy (%)", "Zagraniczny (%)", "Obłożenie więzień (%)", "Areszt (%)"), digits = 2) %>% 
+  kable_paper(bootstrap_options = c("striped", 'hover'), full_width = F) %>% 
+  column_spec(c(2,3), color = c('red','green')) %>% 
+  row_spec(0, angle = -1, color = "#045e98") %>% 
+  column_spec(1, bold = T)
+```
+
+Porównując Polskę do innych krajów świata można się dowiedzieć wielu ciekawych rzeczy, np. w naszym kraju jest ogólnie więcej osób oraz osób na 100 tyś mieszkańców w więzieniu oraz niż średnio na świecie. W Polsce jest prawie 72 tyś, średnio na świecie trochę ponad 48 tyś. Jest też spora różnica w ilości osób z zagranicy wynosi ona ponad **700%**. W innych krajach jest też większe obłożenie więzień i wynosi 127% do 84%.
+
+#### 4.2 Swoich sąsiadów
+
+W tabelach ( @tbl-4, @tbl-5 ) wartości zaznaczone są na czerwono, jeżeli są większe od porównywanego kraju/kontynentu i na zielono, jeżeli są mniejsze.
+
+```{r}
+#| label: tbl-4
+#| tbl-cap: Polska na tle swoich sąsiadów
+
+Niemcy = Tabela[Tabela$Location == "Germany",] %>% select(-Region)
+Czechy = Tabela[Tabela$Location == "Czech Republic",] %>% select(-Region)
+Slowacja = Tabela[Tabela$Location == "Slovakia",] %>% select(-Region)
+Ukraina = Tabela[Tabela$Location == "Ukraine",] %>% select(-Region)
+Bial = Tabela[Tabela$Location == "Belarus",] %>% select(-Region)
+Litwa = Tabela[Tabela$Location == "Lithuania",] %>% select(-Region)
+Rosja = Tabela[Tabela$Location == "Russia",] %>% select(-Region)
+
+Sas = rbind(Polska, Niemcy, Czechy, Slowacja, Ukraina, Bial, Litwa, Rosja)
+Sas %>% kable(col.names = c("Lokalizacja", "Ilość", "Wskaźnik", "Mężczyźni (%)", "Kobiety (%)", "Krajowy (%)", "Zagraniczny (%)", "Obłożenie więzień (%)", "Areszt (%)")) %>% 
+  kable_paper(bootstrap_options = c("striped", 'hover'), full_width = F) %>% 
+  column_spec(2, color = ifelse(Sas$Count>Sas$Count[1], "red", "green")) %>%
+  column_spec(3, color = ifelse(Sas$Rate>Sas$Rate[1], "red", "green")) %>% 
+  column_spec(4, color = ifelse(Sas$Male>Sas$Male[1], "red", "green")) %>% 
+  column_spec(5, color = ifelse(Sas$Female>Sas$Female[1], "red", "green")) %>% 
+  column_spec(6, color = ifelse(Sas$National>Sas$National[1], "red", "green")) %>% 
+  column_spec(7, color = ifelse(Sas$Foreign>Sas$Foreign[1], "red", "green")) %>% 
+  column_spec(8, color = ifelse(Sas$Occupancy>Sas$Occupancy[1], "red", "green")) %>% 
+  column_spec(9, color = ifelse(Sas$Remand>Sas$Remand[1], "red", "green"))%>% 
+row_spec(1, color = c("#B30D0D"), bold = T) %>% column_spec(1, bold = T) %>%
+  row_spec(0, angle = -1, color = "#045e98")
+```
+
+Podobnie ma się sprawa, gdy się porówna Polskę do krajów, z którymi sąsiaduje. Mianowicie więcej osób w więzieniu ma tylko Rosja, mimo że nie tylko ona ma więcej mieszkańców niż nasz kraj. Na przykład **Niemcy** mają ponad 2 razy większą ludność a mają ok. **22%** mniejszą liczbę więźniów. Natomiast więcej osób w więzieniu na 100 tyś mieszkańców ma nie tylko Rosja lecz także **Białoruś**, posiada ona największy wskaźnik w z analizowanej tabeli i wynosi 395 przy średniej wynoszącej `r mean(Sas$Rate)`. Inną interesującą statystyką jest % osób z zagranicy w więzieniu, ponieważ w **Niemczech**, wynosi on aż 24% natomiast w **Polsce** tylko niecałe 2%.
+
+```{r}
+#Europa = Tabela[Tabela$Region == "Europe",]
+#Europa %>%
+#  kable(col.names = c("Lokalizacja","Region", "Ilość", "Wskaźnik", "Mężczyźni (%)", "Kobiety (%)", "Krajowy (%)", "Zagraniczny (%)", "Obłożenie więzień (%)", "Areszt (%)")) %>% kable_paper(bootstrap_options = c("striped","hover"), full_width = F)
+```
+
+### 5. Jak wygląda Europa, gdy się ją porówna z innymi kontynentami
+
+```{r}
+#| label: tbl-5
+#| tbl-cap: Europa na tle innych kontynentów
+
+Kont = Tabela %>% 
+  group_by(Region) %>% 
+ summarise(Count = round(mean(Count, na.rm = T), 0),
+           Rate = round(mean(Rate, na.rm = T), 0),
+           Male = mean(Male, na.rm = T),
+           Female = mean(Female, na.rm = T),
+           National= mean(National, na.rm = T),
+           Foreign = mean(Foreign, na.rm = T),
+           Occupancy = mean(Occupancy, na.rm = T),
+           Remand = mean(Remand, na.rm = T))
+
+Kont %>% 
+    kable(col.names = c("Lokalizacja", "Ilość", "Wskaźnik", "Mężczyźni (%)", "Kobiety (%)", "Krajowy (%)", "Zagraniczny (%)", "Obłożenie więzień (%)", "Areszt (%)"), digits = 2) %>% 
+  kable_paper(bootstrap_options = c("striped", 'hover'), full_width = F) %>% 
+  column_spec(2, color = ifelse(Kont$Count>Kont$Count[4], "red", "green")) %>%
+  column_spec(3, color = ifelse(Kont$Rate>Kont$Rate[4], "red", "green")) %>% 
+  column_spec(4, color = ifelse(Kont$Male>Kont$Male[4], "red", "green")) %>% 
+  column_spec(5, color = ifelse(Kont$Female>Kont$Female[4], "red", "green")) %>% 
+  column_spec(6, color = ifelse(Kont$National>Kont$National[4], "red", "green")) %>% 
+  column_spec(7, color = ifelse(Kont$Foreign>Kont$Foreign[4], "red", "green")) %>% 
+  column_spec(8, color = ifelse(Kont$Occupancy>Kont$Occupancy[4], "red", "green")) %>% 
+  column_spec(9, color = ifelse(Kont$Remand>Kont$Remand[4], "red", "green")) %>% 
+row_spec(4, color = c("#111BAD"), bold = T) %>% column_spec(1, bold = T) %>% 
+  row_spec(0, angle = -1, color = "#045e98")
+```
+
+Nieco inaczej ma się sprawa, gdy porównuje się Europę do innych kontynentów. Ilość osób w więzieniu na 100 tyś mieszkańców wynosi zaledwie **123**. Jest to 2 najmniejszy wynik ze wszystkich kontynentów. Ponad dwukrotnie Europę wyprzedza **Ameryka**, u której wynosi 276. Interesujący jest również procent ilości osób z zagranicy w więzieniu, ponieważ w Europie jest on **największy** i wynosi niecałe 22%, najmniejszy natomiast jest w **Afryce** tylko 6.7%. Bardzo ciekawa jest również kolumna opisująca Obłożenie więzień, ponieważ **tylko** w Europie wynosi ona poniżej 100%, gdzie w Afryce jest to aż **166%**.
+
+## Podsumowanie
+
+Dzięki wizualizacji można pokazać dane nie tylko w trudnej do przeczytania i zrozumienia tabeli, przez którą można łatwo się pogubić. Poprzez wizualizacje można je przedstawić jako ciekawe wykresy, różnorakie tabele czy nawet mapy świata, dzięki którym można szybko, dokładnie i w sposób zrozumiały przekazać najważniejsze informacje.
+
+## Źródła
+
+Do przeprowadzenia analizy została wykorzystana tabela Listy krajów, niektórych terytoriów zależnych i jednostek administracyjnych według wskaźnika pozbawienia wolności, którą można znaleźć w [Wikipedii](https://en.wikipedia.org/wiki/List_of_countries_and_some_dependent_territories_and_subnational_areas_by_incarceration_rate?fbclid=IwAR1aSGWSG4tPrHUdxg4AME4MRY9TkLOZuph3Y1ijGmcVei83rYZFEcQ5cO0).
